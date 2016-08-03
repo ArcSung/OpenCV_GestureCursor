@@ -1,10 +1,6 @@
-#include <opencv2/core/utility.hpp>
-#include "opencv2/video/tracking.hpp"
-#include "opencv2/video/background_segm.hpp"
-#include "opencv2/imgproc.hpp"
-#include "opencv2/videoio.hpp"
-#include "opencv2/highgui.hpp"
 #include "mouseCtrl.h"
+#include "Guesture.h"
+#include "main.h"
 
 #include <iostream>
 #include <ctype.h>
@@ -138,9 +134,9 @@ int main( int argc, const char** argv )
             erode(fgmask, fgmask, Mat());
             dilate(fgmask, fgmask, Mat());
 
-            imshow("foreground mask", fgmask);
+            //imshow("foreground mask", fgmask);
             FrameCount++;
-            if(FrameCount < 100)
+            if(FrameCount < 20)
                 continue;
         }
         
@@ -150,7 +146,7 @@ int main( int argc, const char** argv )
             circle(circle_mask, circle_point, circle_raidus, Scalar(255), -1);
             mask = Scalar::all(0);
             mask = fgmask & circle_mask;
-            imshow("mask", mask);
+            //imshow("mask", mask);
             circle_detect = JudgeSkinRang(mask);
             if(!trackObject)
             {
@@ -179,7 +175,7 @@ int main( int argc, const char** argv )
                                    Point((i+1)*binW,histimg.rows - val),
                                    Scalar(buf.at<Vec3b>(i)), -1, 8 );
                     }
-                    imshow( "Histogram", histimg );
+                    //imshow( "Histogram", histimg );
                 }
             }
             else
@@ -190,10 +186,12 @@ int main( int argc, const char** argv )
                 {    
                     hue = vectorOfHSVImages[0];
                     calcBackProject(&hue, 1, 0, hist, backproj, &phranges);
-                    backproj &= circle_mask;
-                    imshow("backproj", backproj);
+                    threshold(backproj, backproj, 0, 255, THRESH_BINARY + THRESH_OTSU);
+                    //backproj;
+                    //imshow("backproj", backproj);
                     RotatedRect trackBox = CamShift(backproj, trackWindow,
                                     TermCriteria( TermCriteria::EPS | TermCriteria::COUNT, 10, 1 ));
+                    GuestureRecognition(image, backproj);
                     if( trackWindow.area() <= 1 )
                     {
                         int cols = backproj.cols, rows = backproj.rows, r = (MIN(cols, rows) + 5)/6;
@@ -205,7 +203,7 @@ int main( int argc, const char** argv )
                     if( backprojMode )
                         cvtColor( backproj, image, COLOR_GRAY2BGR );
                     circle_point = trackBox.center;
-                    mouseTo(circle_point.x, circle_point.y);
+                    //mouseTo(circle_point.x, circle_point.y);
                 }    
             }
         }
