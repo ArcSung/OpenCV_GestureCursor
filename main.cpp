@@ -1,5 +1,6 @@
 #include <opencv2/core/utility.hpp>
 #include "opencv2/video/tracking.hpp"
+#include "opencv2/video/background_segm.hpp"
 #include "opencv2/imgproc.hpp"
 #include "opencv2/videoio.hpp"
 #include "opencv2/highgui.hpp"
@@ -13,10 +14,10 @@ using namespace std;
 
 
 Mat image;
-
+const int pi = 3.1415;
 bool backprojMode = false;
 bool selectObject = false;
-int trackObject = 0;
+bool trackObject = false;
 bool showHist = true;
 Point origin;
 Rect selection;
@@ -27,34 +28,6 @@ Point circle_point;
 int   circle_raidus;
 Mat   circle_mask;
 bool  circle_detect = false;
-
-
-static void onMouse( int event, int x, int y, int, void* )
-{
-    if( selectObject )
-    {
-        selection.x = MIN(x, origin.x);
-        selection.y = MIN(y, origin.y);
-        selection.width = std::abs(x - origin.x);
-        selection.height = std::abs(y - origin.y);
-
-        selection &= Rect(0, 0, image.cols, image.rows);
-    }
-
-    switch( event )
-    {
-    case EVENT_LBUTTONDOWN:
-        origin = Point(x,y);
-        selection = Rect(x,y,0,0);
-        selectObject = true;
-        break;
-    case EVENT_LBUTTONUP:
-        selectObject = false;
-        if( selection.width > 0 && selection.height > 0 )
-            trackObject = -1;
-        break;
-    }
-}
 
 static void help()
 {
@@ -90,7 +63,7 @@ void init(Mat frame)
 bool JudgeSkinRang(Mat Mask)
 {
     int count_white = countNonZero(Mask);
-    if(count_white > 3*circle_raidus*circle_raidus/4)
+    if(count_white > 5*pi*circle_raidus*circle_raidus/6)
         return true;
     else
         return false;
@@ -99,6 +72,7 @@ bool JudgeSkinRang(Mat Mask)
 const char* keys =
 {
     "{@camera_number| 0 | camera number}"
+    "{m  method   |mog2     | method (knn or mog2) }"
 };
 
 int main( int argc, const char** argv )
@@ -112,6 +86,8 @@ int main( int argc, const char** argv )
     const float* phranges = hranges;
     CommandLineParser parser(argc, argv, keys);
     int camNum = parser.get<int>(0);
+    string method = parser.get<string>("method");
+    bool update_bg_model = true;
 
     cap.open(camNum);
 
@@ -130,37 +106,54 @@ int main( int argc, const char** argv )
         return 0;
     init(frame);
 
-
     namedWindow( "Histogram", 0 );
     namedWindow( "CamShift Demo", 0 );
-    setMouseCallback( "CamShift Demo", onMouse, 0 );
 
     bool paused = false;
 
+    //fg bg segment
+    Ptr<BackgroundSubtractor> bg_model = method == "knn" ?
+            createBackgroundSubtractorKNN().dynamicCast<BackgroundSubtractor>() :
+            createBackgroundSubtractorMOG2().dynamicCast<BackgroundSubtractor>();
+
+    Mat img0, img, fgmask, fgimg;
+    std::vector<Mat> vectorOfHSVImages;
+
+    int FrameCount = 0;
     for(;;)
     {
         if( !paused )
         {
             cap >> frame;
+            cv::flip(frame, frame, 1);
+            frame.copyTo(image);
+
             if( frame.empty() )
                 break;
+            if( fgimg.empty() )
+                fgimg.create(frame.size(), frame.type());
+            //update the model
+            bg_model->apply(frame, fgmask, update_bg_model ? -1 : 0);
+            threshold(fgmask, fgmask, 0, 255, THRESH_BINARY + THRESH_OTSU);
+            erode(fgmask, fgmask, Mat());
+            dilate(fgmask, fgmask, Mat());
+
+            imshow("foreground mask", fgmask);
+            FrameCount++;
+            if(FrameCount < 100)
+                continue;
         }
         
-        cv::flip(frame, frame, 1);
-        frame.copyTo(image);
-
         if( !paused )
         {
             cvtColor(image, hsv, COLOR_BGR2HSV);
             circle(circle_mask, circle_point, circle_raidus, Scalar(255), -1);
-            //if( trackObject )
+            mask = Scalar::all(0);
+            mask = fgmask & circle_mask;
+            imshow("mask", mask);
+            circle_detect = JudgeSkinRang(mask);
+            if(!trackObject)
             {
-                int _vmin = vmin, _vmax = vmax;
-
-                inRange(hsv, Scalar(0, 58, MIN(_vmin,_vmax)),
-                        Scalar(35, 174, MAX(_vmin, _vmax)), mask);
-                mask = mask & circle_mask;
-                circle_detect = JudgeSkinRang(mask);
                 int ch[] = {0, 0};
                 hue.create(hsv.size(), hsv.depth());
                 mixChannels(&hsv, 1, &hue, 1, ch, 1);
@@ -170,7 +163,7 @@ int main( int argc, const char** argv )
                     normalize(hist, hist, 0, 255, NORM_MINMAX);
 
                     trackWindow = selection;
-                    trackObject = 1;
+                    trackObject = true;
 
                     histimg = Scalar::all(0);
                     int binW = histimg.cols / hsize;
@@ -186,12 +179,19 @@ int main( int argc, const char** argv )
                                    Point((i+1)*binW,histimg.rows - val),
                                    Scalar(buf.at<Vec3b>(i)), -1, 8 );
                     }
+                    imshow( "Histogram", histimg );
                 }
+            }
+            else
+            {
 
+                split(hsv, vectorOfHSVImages);
                 if(!hist.empty())
                 {    
+                    hue = vectorOfHSVImages[0];
                     calcBackProject(&hue, 1, 0, hist, backproj, &phranges);
-                    backproj &= mask;
+                    backproj &= circle_mask;
+                    imshow("backproj", backproj);
                     RotatedRect trackBox = CamShift(backproj, trackWindow,
                                     TermCriteria( TermCriteria::EPS | TermCriteria::COUNT, 10, 1 ));
                     if( trackWindow.area() <= 1 )
@@ -223,31 +223,42 @@ int main( int argc, const char** argv )
             circle(image, circle_point, circle_raidus, Scalar(255, 0, 0), 2);
 
         imshow( "CamShift Demo", image );
-        imshow( "Histogram", histimg );
 
         char c = (char)waitKey(10);
         if( c == 27 )
             break;
         switch(c)
         {
-        case 'b':
-            backprojMode = !backprojMode;
+            case 'u':
+                if(update_bg_model == true)
+                {
+                    printf("stop update background");
+                    update_bg_model = false;
+                }
+                else
+                {
+                    printf("start update background");
+                    update_bg_model = true;
+                }
+            break;    
+            case 'b':
+                backprojMode = !backprojMode;
             break;
-        case 'c':
-            trackObject = 0;
-            histimg = Scalar::all(0);
+            case 'c':
+                trackObject = false;
+                histimg = Scalar::all(0);
             break;
-        case 'h':
-            showHist = !showHist;
-            if( !showHist )
-                destroyWindow( "Histogram" );
-            else
-                namedWindow( "Histogram", 1 );
-            break;
-        case 'p':
-            paused = !paused;
-            break;
-        default:
+            case 'h':
+                showHist = !showHist;
+                if( !showHist )
+                    destroyWindow( "Histogram" );
+                else
+                    namedWindow( "Histogram", 1 );
+                break;
+            case 'p':
+                paused = !paused;
+                break;
+            default:
             ;
         }
     }
