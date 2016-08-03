@@ -205,6 +205,7 @@ int main( int argc, const char** argv )
                     if( backprojMode )
                         cvtColor( backproj, image, COLOR_GRAY2BGR );
                     circle_point = trackBox.center;
+                    mouseTo(circle_point.x, circle_point.y);
                 }    
             }
         }
