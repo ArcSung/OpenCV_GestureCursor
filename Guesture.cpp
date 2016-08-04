@@ -5,7 +5,7 @@
 #include "Guesture.h"
 using namespace std;
 using namespace cv;
-#define DeBug true
+//#define DeBug true
 bool UseCamera = false;
 
 //This function returns the square of the euclidean distance between 2 points.
@@ -160,8 +160,8 @@ void GestureDetection(Mat &fore, Mat &frame)
 
                 //Draw the palm center and the palm circle
                 //The size of the palm gives the depth of the hand
-                circle(frame,palm_center,5,Scalar(144,144,255),3);
-                circle(frame,palm_center,radius,Scalar(144,144,255),2);
+                //circle(frame,palm_center,5,Scalar(144,144,255),3);
+                //circle(frame,palm_center,radius,Scalar(144,144,255),2);
 
                 //Detect fingers by finding points that form an almost isosceles triangle with certain thesholds
                 int no_of_fingers=0;
@@ -193,7 +193,7 @@ void GestureDetection(Mat &fore, Mat &frame)
                         }
                 }
 				
-                printf("before fingers %d\n", no_of_fingers);
+                //printf("before fingers %d\n", no_of_fingers);
                 no_of_fingers=min(5,no_of_fingers);
                 cout<<"NO OF FINGERS: "<<no_of_fingers<<endl;
                 //mouseTo(palm_center.x,palm_center.y);//Move the cursor corresponding to the palm
@@ -215,14 +215,14 @@ void GuestureRecognition(Mat& frame, Mat mask)
     // Another option is to use dilate/erode/dilate:
 	int morph_operator = 1; // 0: opening, 1: closing, 2: gradient, 3: top hat, 4: black hat
 	int morph_elem = 2; // 0: rect, 1: cross, 2: ellipse
-	int morph_size = 5; // 2*n + 1
+	int morph_size = 3; // 2*n + 1
     int operation = morph_operator + 2;
 
     // Apply the specified morphology operation
     Mat element = getStructuringElement( morph_elem, Size( 2*morph_size + 1, 2*morph_size+1 ), Point( morph_size, morph_size ) );
     morphologyEx( mask, mask, operation, element );
-    imshow("mask", mask);
     fore = ContourFind(mask);
+    imshow("mask", fore);
     GestureDetection(fore, frame);
 	return ;
 }

@@ -138,6 +138,8 @@ int main( int argc, const char** argv )
             FrameCount++;
             if(FrameCount < 20)
                 continue;
+            else
+                update_bg_model = false;
         }
         
         if( !paused )
@@ -182,13 +184,16 @@ int main( int argc, const char** argv )
             {
 
                 split(hsv, vectorOfHSVImages);
+                circle_mask = Scalar::all(0);
+                circle(circle_mask, circle_point, circle_raidus*2.5, Scalar(255), -1);
                 if(!hist.empty())
                 {    
+                    backproj = Scalar::all(0);
                     hue = vectorOfHSVImages[0];
                     calcBackProject(&hue, 1, 0, hist, backproj, &phranges);
                     threshold(backproj, backproj, 0, 255, THRESH_BINARY + THRESH_OTSU);
-                    //backproj;
-                    //imshow("backproj", backproj);
+                    bitwise_and(backproj, fgmask, backproj);
+                    bitwise_and(backproj, circle_mask, backproj);
                     RotatedRect trackBox = CamShift(backproj, trackWindow,
                                     TermCriteria( TermCriteria::EPS | TermCriteria::COUNT, 10, 1 ));
                     GuestureRecognition(image, backproj);
