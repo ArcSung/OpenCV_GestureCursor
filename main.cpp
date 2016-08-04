@@ -1,7 +1,8 @@
 #include "mouseCtrl.h"
 #include "Guesture.h"
-#include "main.h"
-
+#include "main.hpp"
+#include "handGesture.hpp"
+#include "myImage.hpp"
 #include <iostream>
 #include <ctype.h>
 
@@ -71,6 +72,115 @@ const char* keys =
     "{m  method   |mog2     | method (knn or mog2) }"
 };
 
+void showWindows(Mat &src, Mat &bw){
+	pyrDown(bw,bw);
+	pyrDown(bw,bw);
+	pyrDown(bw,bw);
+	Rect roi( Point( 3*src.cols/4,0 ), bw.size());
+	vector<Mat> channels;
+	Mat result;
+	for(int i=0;i<3;i++)
+		channels.push_back(bw);
+	merge(channels,result);
+	result.copyTo(src(roi));
+	//imshow("img1",m.src);	
+}
+
+int findBiggestContour(vector<vector<Point> > contours)
+{
+    int indexOfBiggestContour = -1;
+    int sizeOfBiggestContour = 0;
+    for (int i = 0; i < contours.size(); i++){
+        if(contours[i].size() > sizeOfBiggestContour){
+            sizeOfBiggestContour = contours[i].size();
+            indexOfBiggestContour = i;
+        }
+    }
+    return indexOfBiggestContour;
+}
+
+void myDrawContours(Mat &src, Mat &bw, HandGesture *hg)
+{
+	drawContours(src,hg->hullP,hg->cIdx,cv::Scalar(200,0,0),2, 8, vector<Vec4i>(), 0, Point());
+
+	rectangle(src,hg->bRect.tl(),hg->bRect.br(),Scalar(0,0,200));
+	vector<Vec4i>::iterator d=hg->defects[hg->cIdx].begin();
+	int fontFace = FONT_HERSHEY_PLAIN;
+		
+	
+	vector<Mat> channels;
+		Mat result;
+		for(int i=0;i<3;i++)
+			channels.push_back(bw);
+		merge(channels,result);
+	//	drawContours(result,hg->contours,hg->cIdx,cv::Scalar(0,200,0),6, 8, vector<Vec4i>(), 0, Point());
+		drawContours(result,hg->hullP,hg->cIdx,cv::Scalar(0,0,250),10, 8, vector<Vec4i>(), 0, Point());
+
+		
+	while( d!=hg->defects[hg->cIdx].end() ) {
+   	    Vec4i& v=(*d);
+	    int startidx=v[0]; Point ptStart(hg->contours[hg->cIdx][startidx] );
+   		int endidx=v[1]; Point ptEnd(hg->contours[hg->cIdx][endidx] );
+  	    int faridx=v[2]; Point ptFar(hg->contours[hg->cIdx][faridx] );
+	    float depth = v[3] / 256;
+   /*	
+		line( m->src, ptStart, ptFar, Scalar(0,255,0), 1 );
+	    line( m->src, ptEnd, ptFar, Scalar(0,255,0), 1 );
+   		circle( m->src, ptFar,   4, Scalar(0,255,0), 2 );
+   		circle( m->src, ptEnd,   4, Scalar(0,0,255), 2 );
+   		circle( m->src, ptStart,   4, Scalar(255,0,0), 2 );
+*/
+   		circle( result, ptFar,   9, Scalar(0,205,0), 5 );
+		
+		
+	    d++;
+
+   	 }
+//	imwrite("./images/contour_defects_before_eliminate.jpg",result);
+
+}
+
+void makeContours(Mat &Mat_src, Mat &Mat_bw, HandGesture* hg){
+	Mat aBw;
+	pyrUp(Mat_bw,Mat_bw);
+	Mat_bw.copyTo(aBw);
+	findContours(aBw,hg->contours,CV_RETR_EXTERNAL,CV_CHAIN_APPROX_NONE);
+	hg->initVectors(); 
+	hg->cIdx=findBiggestContour(hg->contours);
+	if(hg->cIdx!=-1){
+//		approxPolyDP( Mat(hg->contours[hg->cIdx]), hg->contours[hg->cIdx], 11, true );
+		hg->bRect=boundingRect(Mat(hg->contours[hg->cIdx]));		
+		convexHull(Mat(hg->contours[hg->cIdx]),hg->hullP[hg->cIdx],false,true);
+		convexHull(Mat(hg->contours[hg->cIdx]),hg->hullI[hg->cIdx],false,false);
+		approxPolyDP( Mat(hg->hullP[hg->cIdx]), hg->hullP[hg->cIdx], 18, true );
+		if(hg->contours[hg->cIdx].size()>3 ){
+			convexityDefects(hg->contours[hg->cIdx],hg->hullI[hg->cIdx],hg->defects[hg->cIdx]);
+			hg->eleminateDefects();
+		}
+		bool isHand=hg->detectIfHand();
+		hg->printGestureInfo(Mat_src);
+		if(isHand){	
+			hg->getFingerTips(Mat_src);
+			hg->drawFingerTips(Mat_src);
+			myDrawContours(Mat_src, Mat_bw, hg);
+		}
+	}
+}
+
+void fillContours(Mat &bw)
+{
+    // Another option is to use dilate/erode/dilate:
+	int morph_operator = 1; // 0: opening, 1: closing, 2: gradient, 3: top hat, 4: black hat
+	int morph_elem = 2; // 0: rect, 1: cross, 2: ellipse
+	int morph_size = 3; // 2*n + 1
+    int operation = morph_operator + 2;
+
+    // Apply the specified morphology operation
+    Mat element = getStructuringElement( morph_elem, Size( 2*morph_size + 1, 2*morph_size+1 ), Point( morph_size, morph_size ) );
+    morphologyEx( bw, bw, operation, element );
+
+}    
+
 int main( int argc, const char** argv )
 {
     help();
@@ -84,6 +194,7 @@ int main( int argc, const char** argv )
     int camNum = parser.get<int>(0);
     string method = parser.get<string>("method");
     bool update_bg_model = true;
+	HandGesture hg;
 
     cap.open(camNum);
 
@@ -135,9 +246,11 @@ int main( int argc, const char** argv )
             dilate(fgmask, fgmask, Mat());
 
             //imshow("foreground mask", fgmask);
-            FrameCount++;
             if(FrameCount < 20)
+            {    
+                FrameCount++;
                 continue;
+            }
             else
                 update_bg_model = false;
         }
@@ -196,7 +309,11 @@ int main( int argc, const char** argv )
                     bitwise_and(backproj, circle_mask, backproj);
                     RotatedRect trackBox = CamShift(backproj, trackWindow,
                                     TermCriteria( TermCriteria::EPS | TermCriteria::COUNT, 10, 1 ));
-                    GuestureRecognition(image, backproj);
+                    //GuestureRecognition(image, backproj);
+                    fillContours(backproj);
+		            makeContours(image, backproj, &hg);
+		            hg.getFingerNumber(image);
+		            showWindows(image, backproj);
                     if( trackWindow.area() <= 1 )
                     {
                         int cols = backproj.cols, rows = backproj.rows, r = (MIN(cols, rows) + 5)/6;
@@ -205,8 +322,8 @@ int main( int argc, const char** argv )
                                   Rect(0, 0, cols, rows);
                     }
 
-                    if( backprojMode )
-                        cvtColor( backproj, image, COLOR_GRAY2BGR );
+                    //if( backprojMode )
+                    //    cvtColor( backproj, image, COLOR_GRAY2BGR );
                     circle_point = trackBox.center;
                     //mouseTo(circle_point.x, circle_point.y);
                 }    
@@ -250,7 +367,9 @@ int main( int argc, const char** argv )
             break;
             case 'c':
                 trackObject = false;
+                FrameCount = 0;
                 histimg = Scalar::all(0);
+                init(frame);
             break;
             case 'h':
                 showHist = !showHist;
